@@ -3,7 +3,8 @@ import { Event } from '../models/Event';
 import { AuthRequest } from '../middleware/auth';
 import { expandRecurringEvents } from '../services/recurrenceService';
 import { checkConflicts } from '../services/conflictService';
-import { startOfMonth, endOfMonth, parseISO } from 'date-fns';
+import { parseISO } from 'date-fns';
+import { io } from '../server';
 
 /**
  * Get events within a date range
@@ -20,7 +21,6 @@ export async function getEvents(req: AuthRequest, res: Response): Promise<void> 
     const startDate = parseISO(start as string);
     const endDate = parseISO(end as string);
 
-    // Fetch events that overlap with the range or are recurring
     const events = await Event.find({
       createdBy: req.userId,
       $or: [
@@ -29,7 +29,6 @@ export async function getEvents(req: AuthRequest, res: Response): Promise<void> 
       ],
     }).sort({ start: 1 });
 
-    // Expand recurring events
     const expandedEvents = expandRecurringEvents(events, startDate, endDate);
 
     res.json({ events: expandedEvents });
@@ -71,6 +70,9 @@ export async function createEvent(req: AuthRequest, res: Response): Promise<void
 
     const event = await Event.create(eventData);
 
+    // Emit socket event
+    io.to(`user:${req.userId}`).emit('event:created', event);
+
     res.status(201).json({ event });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to create event' });
@@ -93,6 +95,9 @@ export async function updateEvent(req: AuthRequest, res: Response): Promise<void
       return;
     }
 
+    // Emit socket event
+    io.to(`user:${req.userId}`).emit('event:updated', event);
+
     res.json({ event });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to update event' });
@@ -113,6 +118,9 @@ export async function deleteEvent(req: AuthRequest, res: Response): Promise<void
       res.status(404).json({ error: 'Event not found' });
       return;
     }
+
+    // Emit socket event
+    io.to(`user:${req.userId}`).emit('event:deleted', { eventId: req.params.id });
 
     res.json({ message: 'Event deleted successfully' });
   } catch (error: any) {
